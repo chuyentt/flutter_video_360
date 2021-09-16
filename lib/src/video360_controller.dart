@@ -40,6 +40,7 @@ class Video360Controller {
   init() async {
     try {
       await _channel.invokeMethod<void>('init', {
+        'is360': false,
         'url': url,
         'width': width,
         'isAutoPlay': isAutoPlay,

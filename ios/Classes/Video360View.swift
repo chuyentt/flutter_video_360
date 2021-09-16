@@ -11,6 +11,7 @@ class Video360View: UIView, FlutterPlugin {
     private var timer: Timer?
     private var player: AVPlayer!
     private var swifty360View: Swifty360View!
+    private var play2DView: UIView!
 
     init(viewId: String, messenger: FlutterBinaryMessenger) {
         self.channel = FlutterMethodChannel(name: viewId, binaryMessenger: messenger)
@@ -38,6 +39,7 @@ extension Video360View {
             switch call.method {
             case "init":
                 guard let argMaps = call.arguments as? Dictionary<String, Any>,
+                      let is360 = argMaps["is360"] as? Bool,
                       let url = argMaps["url"] as? String,
                       let videoURL = URL(string: url),
                       let isAutoPlay = argMaps["isAutoPlay"] as? Bool,
@@ -47,8 +49,15 @@ extension Video360View {
                     result(FlutterError(code: call.method, message: "Missing argument", details: nil))
                     return
                 }
+                
+                switch is360 {
+                case true:
+                    self.init360View(videoURL: videoURL, width: width, height: height)
 
-                self.initView(videoURL: videoURL, width: width, height: height)
+                case false:
+                    self.init2DView(videoURL: videoURL, width: width, height: height)
+                }
+                
                 self.updateTime()
 
                 if isAutoPlay {
@@ -56,10 +65,7 @@ extension Video360View {
                 }
 
                 if isRepeat {
-                    NotificationCenter.default.addObserver(self,
-                                                           selector: #selector(self.playerFinish(noti:)),
-                                                           name: .AVPlayerItemDidPlayToEndTime,
-                                                           object: nil)
+                    self.addRepeatNotification()
                 }
 
             case "dispose":
@@ -91,7 +97,8 @@ extension Video360View {
                 self.seekTo(second: time / 1000.0)
 
             case "onPanUpdate":
-                guard let argMaps = call.arguments as? Dictionary<String, Any>,
+                guard self.swifty360View != nil,
+                      let argMaps = call.arguments as? Dictionary<String, Any>,
                       let isStart = argMaps["isStart"] as? Bool,
                       let x = argMaps["x"] as? Double,
                       (0 ... Double(self.swifty360View.frame.maxX)) ~= x,
@@ -110,14 +117,32 @@ extension Video360View {
     }
 
     // 360View Init
-    private func initView(videoURL: URL, width: Double, height: Double) {
+    private func init360View(videoURL: URL, width: Double, height: Double) {
         self.player = AVPlayer(url: videoURL)
         let motionManager = Swifty360MotionManager.shared
-        self.swifty360View = Swifty360View(withFrame: CGRect(x: 0.0, y: 0.0, width: width, height: height),
+        self.swifty360View = Swifty360View(withFrame: CGRect(origin: .zero, size: CGSize(width: width, height: height)),
                                            player: self.player,
                                            motionManager: motionManager)
         self.swifty360View.setup(player: self.player, motionManager: motionManager)
         self.addSubview(self.swifty360View)
+    }
+    
+    private func init2DView(videoURL: URL, width: Double, height: Double) {
+        let frame = CGRect(origin: .zero, size: CGSize(width: width, height: height))
+        self.play2DView = UIView(frame: frame)
+        self.player = AVPlayer(url: videoURL)
+        let layer: AVPlayerLayer = AVPlayerLayer(player: player)
+        layer.frame = frame
+        layer.videoGravity = AVLayerVideoGravity.resizeAspectFill
+        self.play2DView.layer.addSublayer(layer)
+        self.addSubview(self.play2DView)
+    }
+    
+    private func addRepeatNotification() {
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(self.playerFinish(noti:)),
+                                               name: .AVPlayerItemDidPlayToEndTime,
+                                               object: nil)
     }
 
     // repeat
@@ -155,7 +180,7 @@ extension Video360View {
 
     // seekTo
     private func seekTo(second: Double) {
-        let current = self.swifty360View.player.currentTime()
+        let current = self.player.currentTime()
         let sec = CMTimeMakeWithSeconds(Float64(second), preferredTimescale: Int32(NSEC_PER_SEC))
         self.player.seek(to: current + sec)
         self.checkPlayerState()
